@@ -4,6 +4,9 @@ import plotly.express as px
 
 st.set_page_config(page_title="SalesVision USA", layout="wide")
 
+# ---------- PALETTE DE COULEURS COHÉRENTE ----------
+COLOR_SEQUENCE = ["#1f77b4", "#4a90d9", "#7fb3e0", "#0d3c61", "#a8cce8", "#2c5f8a"]
+
 STATE_NAMES = {
     'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
     'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
@@ -52,7 +55,8 @@ def load_data():
     return df
 
 
-df = load_data()
+with st.spinner("Chargement des données..."):
+    df = load_data()
 
 # ---------- EN-TÊTE ----------
 st.markdown("""
@@ -65,54 +69,115 @@ st.markdown("""
 # ---------- SIDEBAR : FILTRES ----------
 st.sidebar.header("Filtres")
 
+# Bouton de réinitialisation - bien visible, en haut de la sidebar
+if st.sidebar.button("🔄 Réinitialiser tous les filtres", use_container_width=True, type="primary"):
+    for key in ["filter_date", "filter_region", "filter_state", "filter_country", "filter_city", "filter_status"]:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
+
+st.sidebar.markdown("---")
+
 min_date = df['order_date'].min()
 max_date = df['order_date'].max()
 date_range = st.sidebar.date_input(
     "Période",
     value=(min_date, max_date),
     min_value=min_date,
-    max_value=max_date
+    max_value=max_date,
+    key="filter_date"
 )
 
 regions = sorted(df['Region'].unique())
-selected_regions = st.sidebar.multiselect("Région", regions, default=[])
+selected_regions = st.sidebar.multiselect("Région", regions, default=[], key="filter_region")
 
 df_temp = df[df['Region'].isin(selected_regions)] if selected_regions else df
 
 states = sorted(df_temp['State Complet'].unique())
-selected_states = st.sidebar.multiselect("State", states, default=[])
+selected_states = st.sidebar.multiselect("State", states, default=[], key="filter_state")
 
 df_temp2 = df_temp[df_temp['State Complet'].isin(selected_states)] if selected_states else df_temp
 
 countries = sorted(df_temp2['Country'].unique())
-selected_countries = st.sidebar.multiselect("Country", countries, default=[])
+selected_countries = st.sidebar.multiselect("Country", countries, default=[], key="filter_country")
 
 df_temp3 = df_temp2[df_temp2['Country'].isin(selected_countries)] if selected_countries else df_temp2
 
 cities = sorted(df_temp3['City'].unique())
-selected_cities = st.sidebar.multiselect("City", cities, default=[])
+selected_cities = st.sidebar.multiselect("City", cities, default=[], key="filter_city")
 
 statuses = sorted(df['status'].unique())
-selected_statuses = st.sidebar.multiselect("Statut de la commande", statuses, default=[])
+selected_statuses = st.sidebar.multiselect("Statut de la commande", statuses, default=[], key="filter_status")
 
-# ---------- APPLICATION DE TOUS LES FILTRES ----------
-df_filtered = df.copy()
 
-if len(date_range) == 2:
-    df_filtered = df_filtered[
-        (df_filtered['order_date'] >= pd.to_datetime(date_range[0])) &
-        (df_filtered['order_date'] <= pd.to_datetime(date_range[1]))
-    ]
-if selected_regions:
-    df_filtered = df_filtered[df_filtered['Region'].isin(selected_regions)]
-if selected_states:
-    df_filtered = df_filtered[df_filtered['State Complet'].isin(selected_states)]
-if selected_countries:
-    df_filtered = df_filtered[df_filtered['Country'].isin(selected_countries)]
-if selected_cities:
-    df_filtered = df_filtered[df_filtered['City'].isin(selected_cities)]
-if selected_statuses:
-    df_filtered = df_filtered[df_filtered['status'].isin(selected_statuses)]
+# ---------- FONCTION DE FILTRAGE (réutilisable pour la comparaison de période) ----------
+def apply_filters(base_df, start=None, end=None):
+    d = base_df
+    if start is not None and end is not None:
+        d = d[(d['order_date'] >= pd.to_datetime(start)) & (d['order_date'] <= pd.to_datetime(end))]
+    if selected_regions:
+        d = d[d['Region'].isin(selected_regions)]
+    if selected_states:
+        d = d[d['State Complet'].isin(selected_states)]
+    if selected_countries:
+        d = d[d['Country'].isin(selected_countries)]
+    if selected_cities:
+        d = d[d['City'].isin(selected_cities)]
+    if selected_statuses:
+        d = d[d['status'].isin(selected_statuses)]
+    return d
+
+
+has_period = len(date_range) == 2
+
+if has_period:
+    df_filtered = apply_filters(df, date_range[0], date_range[1])
+else:
+    df_filtered = apply_filters(df)
+
+# ---------- MESSAGE SI AUCUNE DONNÉE ----------
+if df_filtered.empty:
+    st.warning("⚠️ Aucune donnée ne correspond à cette combinaison de filtres. Essayez d'élargir votre sélection ou cliquez sur 'Réinitialiser tous les filtres'.")
+    st.stop()
+
+# ---------- CALCUL DE LA PÉRIODE PRÉCÉDENTE (pour comparaison) ----------
+delta_ventes = None
+delta_commandes = None
+delta_clients = None
+
+if has_period:
+    start, end = date_range
+    period_days = (end - start).days + 1
+    prev_end = start - pd.Timedelta(days=1)
+    prev_start = prev_end - pd.Timedelta(days=period_days - 1)
+    df_prev = apply_filters(df, prev_start, prev_end)
+
+    if not df_prev.empty:
+        prev_total = df_prev['total'].sum()
+        prev_clients = df_prev['cust_id'].nunique()
+        prev_commandes = df_prev['order_id'].nunique()
+
+        curr_total = df_filtered['total'].sum()
+        curr_clients = df_filtered['cust_id'].nunique()
+        curr_commandes = df_filtered['order_id'].nunique()
+
+        if prev_total > 0:
+            delta_ventes = f"{((curr_total - prev_total) / prev_total) * 100:+.1f}% vs période précédente"
+        if prev_clients > 0:
+            delta_clients = f"{((curr_clients - prev_clients) / prev_clients) * 100:+.1f}% vs période précédente"
+        if prev_commandes > 0:
+            delta_commandes = f"{((curr_commandes - prev_commandes) / prev_commandes) * 100:+.1f}% vs période précédente"
+
+# ---------- BOUTON D'EXPORT CSV ----------
+csv_data = df_filtered.to_csv(index=False).encode('utf-8')
+st.sidebar.markdown("---")
+st.sidebar.download_button(
+    label="⬇️ Exporter les données filtrées (CSV)",
+    data=csv_data,
+    file_name="ventes_filtrees.csv",
+    mime="text/csv",
+    use_container_width=True
+)
 
 # ---------- ONGLETS ----------
 tab1, tab2, tab3, tab4 = st.tabs(
@@ -123,19 +188,21 @@ tab1, tab2, tab3, tab4 = st.tabs(
 with tab1:
     st.subheader("Indicateurs clés")
 
-    col1, col2, col3 = st.columns(3)
+    total_ventes = df_filtered['total'].sum()
+    nb_clients = df_filtered['cust_id'].nunique()
+    nb_commandes = df_filtered['order_id'].nunique()
+    panier_moyen = total_ventes / nb_commandes if nb_commandes > 0 else 0
+
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        total_ventes = df_filtered['total'].sum()
-        st.metric("💰 Nombre total de vente", f"{total_ventes:,.0f}")
-
+        st.metric("💰 Nombre total de vente", f"${total_ventes:,.0f}", delta=delta_ventes)
     with col2:
-        nb_clients = df_filtered['cust_id'].nunique()
-        st.metric("👥 Nombre distinct de clients", f"{nb_clients:,}")
-
+        st.metric("👥 Nombre distinct de clients", f"{nb_clients:,}", delta=delta_clients)
     with col3:
-        nb_commandes = df_filtered['order_id'].nunique()
-        st.metric("📦 Nombre total de commande", f"{nb_commandes:,}")
+        st.metric("📦 Nombre total de commande", f"{nb_commandes:,}", delta=delta_commandes)
+    with col4:
+        st.metric("🧺 Panier moyen", f"${panier_moyen:,.2f}")
 
     st.markdown("---")
     st.subheader("Ventes par catégorie et par région")
@@ -149,9 +216,14 @@ with tab1:
             ventes_categorie,
             x='category',
             y='total',
-            title="Nombre total de vente par Catégorie"
+            title="Nombre total de vente par Catégorie",
+            color_discrete_sequence=COLOR_SEQUENCE
         )
         st.plotly_chart(fig_bar, use_container_width=True)
+
+        top_cat = ventes_categorie.iloc[0]
+        pct_cat = (top_cat['total'] / total_ventes) * 100
+        st.info(f"💡 La catégorie **{top_cat['category']}** est la plus vendue, représentant **{pct_cat:.1f}%** des ventes totales.")
 
     with col2:
         ventes_region = df_filtered.groupby('Region')['total'].sum().reset_index()
@@ -159,9 +231,14 @@ with tab1:
             ventes_region,
             names='Region',
             values='total',
-            title="Pourcentage du nombre total de vente par Région"
+            title="Pourcentage du nombre total de vente par Région",
+            color_discrete_sequence=COLOR_SEQUENCE
         )
         st.plotly_chart(fig_pie, use_container_width=True)
+
+        top_region = ventes_region.sort_values('total', ascending=False).iloc[0]
+        pct_region = (top_region['total'] / total_ventes) * 100
+        st.info(f"💡 La région **{top_region['Region']}** génère **{pct_region:.1f}%** du chiffre d'affaires.")
 
     st.markdown("---")
     with st.expander("🔍 Voir un extrait des données filtrées"):
@@ -179,9 +256,13 @@ with tab2:
         x='total',
         y='full_name',
         orientation='h',
-        title="Top 10 des meilleurs clients (par nombre total de vente)"
+        title="Top 10 des meilleurs clients (par nombre total de vente)",
+        color_discrete_sequence=COLOR_SEQUENCE
     )
     st.plotly_chart(fig_top10, use_container_width=True)
+
+    best_client = top_clients.iloc[0]
+    st.info(f"💡 **{best_client['full_name']}** est votre meilleur client, avec **${best_client['total']:,.0f}** d'achats cumulés.")
 
     st.markdown("---")
     st.subheader("Répartition des clients par âge et par genre")
@@ -193,9 +274,13 @@ with tab2:
             df_filtered,
             x='age',
             nbins=20,
-            title="Répartition de l'âge des clients"
+            title="Répartition de l'âge des clients",
+            color_discrete_sequence=[COLOR_SEQUENCE[0]]
         )
         st.plotly_chart(fig_age, use_container_width=True)
+
+        age_moyen = df_filtered['age'].mean()
+        st.info(f"💡 L'âge moyen des clients est de **{age_moyen:.0f} ans**.")
 
     with col2:
         gender_counts = df_filtered['Gender'].value_counts(normalize=True).reset_index()
@@ -207,9 +292,14 @@ with tab2:
             x='Gender',
             y='Pourcentage',
             text=gender_counts['Pourcentage'].round(1).astype(str) + '%',
-            title="Répartition Hommes / Femmes (%)"
+            title="Répartition Hommes / Femmes (%)",
+            color='Gender',
+            color_discrete_sequence=COLOR_SEQUENCE
         )
         st.plotly_chart(fig_gender, use_container_width=True)
+
+        top_gender = gender_counts.sort_values('Pourcentage', ascending=False).iloc[0]
+        st.info(f"💡 La clientèle est majoritairement composée de **{top_gender['Gender']}** ({top_gender['Pourcentage']:.1f}%).")
 
 # ===================== TAB 3 : VENTES DÉTAILLÉES =====================
 with tab3:
@@ -225,11 +315,16 @@ with tab3:
         x='annee_mois',
         y='total',
         markers=True,
-        title="Nombre total de vente par mois"
+        title="Nombre total de vente par mois",
+        color_discrete_sequence=COLOR_SEQUENCE
     )
     fig_line.update_xaxes(title="Année-Mois")
     fig_line.update_yaxes(title="Total des ventes")
     st.plotly_chart(fig_line, use_container_width=True)
+
+    if len(ventes_mensuelles) > 0:
+        best_month = ventes_mensuelles.sort_values('total', ascending=False).iloc[0]
+        st.info(f"💡 Le meilleur mois est **{best_month['annee_mois']}** avec **${best_month['total']:,.0f}** de ventes.")
 
     st.markdown("---")
     st.subheader("Données détaillées")
@@ -260,9 +355,13 @@ with tab4:
         zoom=3,
         center={"lat": 39.8, "lon": -98.5},
         height=600,
-        color_continuous_scale='Reds',
+        color_continuous_scale='Blues',
         title="Nombre total de vente par State"
     )
     fig_map.update_layout(mapbox_style=map_style)
     fig_map.update_layout(margin={"r": 0, "t": 40, "l": 0, "b": 0})
     st.plotly_chart(fig_map, use_container_width=True)
+
+    if len(ventes_state) > 0:
+        top_state = ventes_state.sort_values('total', ascending=False).iloc[0]
+        st.info(f"💡 Le State qui génère le plus de ventes est **{top_state['State Complet']}** avec **${top_state['total']:,.0f}**.")
