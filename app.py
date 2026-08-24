@@ -6,7 +6,6 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 st.set_page_config(page_title="SalesVision USA", layout="wide")
 
-# ---------- PALETTE DE COULEURS COHÉRENTE ----------
 COLOR_SEQUENCE = ["#1f77b4", "#4a90d9", "#7fb3e0", "#0d3c61", "#a8cce8", "#2c5f8a"]
 
 STATE_NAMES = {
@@ -80,7 +79,6 @@ def load_data():
 with st.spinner("Chargement des données..."):
     df = load_data()
 
-# ---------- EN-TÊTE ----------
 st.markdown("""
     <div style='text-align: center; padding: 10px 0 20px 0;'>
         <h1 style='color: #1f77b4; margin-bottom: 0;'>📊 SalesVision USA</h1>
@@ -88,7 +86,6 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# ---------- SIDEBAR : FILTRES ----------
 st.sidebar.header("Filtres")
 
 min_date = df['order_date'].min()
@@ -145,7 +142,7 @@ statuts = sorted(df['Statut'].unique())
 selected_statuts = st.sidebar.multiselect("Statut de la commande", statuts, key="filter_status")
 
 
-# ---------- FONCTION DE FILTRAGE (réutilisable pour la comparaison de période) ----------
+# FONCTION DE FILTRAGE (réutilisable pour la comparaison de période) 
 def apply_filters(base_df, start=None, end=None):
     d = base_df
     if start is not None and end is not None:
@@ -170,12 +167,12 @@ if has_period:
 else:
     df_filtered = apply_filters(df)
 
-# ---------- MESSAGE SI AUCUNE DONNÉE ----------
+# MESSAGE SI AUCUNE DONNÉE 
 if df_filtered.empty:
     st.warning("⚠️ Aucune donnée ne correspond à cette combinaison de filtres. Essayez d'élargir votre sélection ou cliquez sur 'Réinitialiser tous les filtres'.")
     st.stop()
 
-# ---------- CALCUL DE LA PÉRIODE PRÉCÉDENTE (pour comparaison) ----------
+# CALCUL DE LA PÉRIODE PRÉCÉDENTE (pour comparaison) 
 delta_ventes = None
 delta_commandes = None
 delta_clients = None
@@ -203,7 +200,7 @@ if has_period:
         if prev_commandes > 0:
             delta_commandes = f"{((curr_commandes - prev_commandes) / prev_commandes) * 100:+.1f}% vs période précédente"
 
-# ---------- BOUTON D'EXPORT CSV ----------
+# BOUTON D'EXPORT CSV 
 csv_data = df_filtered.to_csv(index=False).encode('utf-8')
 st.sidebar.markdown("---")
 st.sidebar.download_button(
@@ -214,12 +211,11 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
-# ---------- ONGLETS ----------
 tab1, tab2, tab3, tab4 = st.tabs(
     ["🏠 Vue d'ensemble", "👥 Clients", "📈 Ventes détaillées", "🗺️ Carte"]
 )
 
-# ===================== TAB 1 : VUE D'ENSEMBLE =====================
+#  TAB 1 : VUE D'ENSEMBLE 
 with tab1:
     st.subheader("Indicateurs clés")
 
@@ -306,7 +302,7 @@ with tab1:
     with st.expander("🔍 Voir un extrait des données filtrées"):
         st.dataframe(df_filtered.head(20))
 
-# ===================== TAB 2 : CLIENTS =====================
+# TAB 2 : CLIENTS 
 with tab2:
     st.subheader("Top 10 des meilleurs clients (par montant)")
 
@@ -383,7 +379,7 @@ with tab2:
         top_gender = gender_counts.sort_values('Pourcentage', ascending=False).iloc[0]
         st.info(f"💡 La clientèle est majoritairement composée de **{top_gender['Gender']}** ({top_gender['Pourcentage']:.1f}%).")
 
-# ===================== TAB 3 : VENTES DÉTAILLÉES =====================
+# TAB 3 : VENTES DÉTAILLÉES 
 with tab3:
     st.subheader("Évolution du nombre total de vente par mois")
 
@@ -454,7 +450,7 @@ with tab3:
     st.subheader("Données détaillées")
     st.dataframe(df_filtered.head(50))
 
-# ===================== TAB 4 : CARTE =====================
+# TAB 4 : CARTE 
 with tab4:
     st.subheader("🗺️ Carte des ventes par State")
 
