@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 st.set_page_config(page_title="SalesVision USA", layout="wide")
 
@@ -43,6 +45,25 @@ STATE_COORDS = {
     'WV': (38.491226, -80.954453), 'WI': (44.268543, -89.616508), 'WY': (42.755966, -107.302490)
 }
 
+# Traduction des statuts de commande en libellés lisibles
+STATUS_NAMES = {
+    'received': 'Reçue',
+    'complete': 'Complétée',
+    'order_refunded': 'Remboursée',
+    'canceled': 'Annulée',
+    'refund': 'Remboursement',
+    'cod': 'Paiement à la livraison',
+    'paid': 'Payée',
+    'processing': 'En traitement',
+    'closed': 'Clôturée',
+    'pending': 'En attente',
+    'pending_paypal': 'En attente (PayPal)',
+    'payment_review': 'Vérification du paiement',
+    'holded': 'En attente de validation'
+}
+
+STATUTS_ANNULATION = ['Annulée', 'Remboursée', 'Remboursement']
+
 
 @st.cache_data
 def load_data():
@@ -52,6 +73,7 @@ def load_data():
     df['Country'] = 'USA'
     df['Latitude'] = df['State'].map(lambda x: STATE_COORDS.get(x, (None, None))[0])
     df['Longitude'] = df['State'].map(lambda x: STATE_COORDS.get(x, (None, None))[1])
+    df['Statut'] = df['status'].map(STATUS_NAMES).fillna(df['status'])
     return df
 
 
@@ -69,17 +91,30 @@ st.markdown("""
 # ---------- SIDEBAR : FILTRES ----------
 st.sidebar.header("Filtres")
 
-# Bouton de réinitialisation - bien visible, en haut de la sidebar
-if st.sidebar.button("🔄 Réinitialiser tous les filtres", use_container_width=True, type="primary"):
-    for key in ["filter_date", "filter_region", "filter_state", "filter_country", "filter_city", "filter_status"]:
-        if key in st.session_state:
-            del st.session_state[key]
-    st.rerun()
+min_date = df['order_date'].min()
+max_date = df['order_date'].max()
+
+
+# Callback de réinitialisation : remet chaque filtre à sa valeur par défaut
+# AVANT que les widgets ne soient redessinés (méthode fiable recommandée par Streamlit)
+def reset_filters():
+    st.session_state["filter_date"] = (min_date, max_date)
+    st.session_state["filter_region"] = []
+    st.session_state["filter_state"] = []
+    st.session_state["filter_country"] = []
+    st.session_state["filter_city"] = []
+    st.session_state["filter_status"] = []
+
+
+st.sidebar.button(
+    "🔄 Réinitialiser tous les filtres",
+    use_container_width=True,
+    type="primary",
+    on_click=reset_filters
+)
 
 st.sidebar.markdown("---")
 
-min_date = df['order_date'].min()
-max_date = df['order_date'].max()
 date_range = st.sidebar.date_input(
     "Période",
     value=(min_date, max_date),
@@ -89,25 +124,25 @@ date_range = st.sidebar.date_input(
 )
 
 regions = sorted(df['Region'].unique())
-selected_regions = st.sidebar.multiselect("Région", regions, default=[], key="filter_region")
+selected_regions = st.sidebar.multiselect("Région", regions, key="filter_region")
 
 df_temp = df[df['Region'].isin(selected_regions)] if selected_regions else df
 
 states = sorted(df_temp['State Complet'].unique())
-selected_states = st.sidebar.multiselect("State", states, default=[], key="filter_state")
+selected_states = st.sidebar.multiselect("State", states, key="filter_state")
 
 df_temp2 = df_temp[df_temp['State Complet'].isin(selected_states)] if selected_states else df_temp
 
 countries = sorted(df_temp2['Country'].unique())
-selected_countries = st.sidebar.multiselect("Country", countries, default=[], key="filter_country")
+selected_countries = st.sidebar.multiselect("Country", countries, key="filter_country")
 
 df_temp3 = df_temp2[df_temp2['Country'].isin(selected_countries)] if selected_countries else df_temp2
 
 cities = sorted(df_temp3['City'].unique())
-selected_cities = st.sidebar.multiselect("City", cities, default=[], key="filter_city")
+selected_cities = st.sidebar.multiselect("City", cities, key="filter_city")
 
-statuses = sorted(df['status'].unique())
-selected_statuses = st.sidebar.multiselect("Statut de la commande", statuses, default=[], key="filter_status")
+statuts = sorted(df['Statut'].unique())
+selected_statuts = st.sidebar.multiselect("Statut de la commande", statuts, key="filter_status")
 
 
 # ---------- FONCTION DE FILTRAGE (réutilisable pour la comparaison de période) ----------
@@ -123,8 +158,8 @@ def apply_filters(base_df, start=None, end=None):
         d = d[d['Country'].isin(selected_countries)]
     if selected_cities:
         d = d[d['City'].isin(selected_cities)]
-    if selected_statuses:
-        d = d[d['status'].isin(selected_statuses)]
+    if selected_statuts:
+        d = d[d['Statut'].isin(selected_statuts)]
     return d
 
 
@@ -192,9 +227,11 @@ with tab1:
     nb_clients = df_filtered['cust_id'].nunique()
     nb_commandes = df_filtered['order_id'].nunique()
     panier_moyen = total_ventes / nb_commandes if nb_commandes > 0 else 0
+    qte_totale = df_filtered['qty_ordered'].sum()
+    nb_annulations = df_filtered[df_filtered['Statut'].isin(STATUTS_ANNULATION)]['order_id'].nunique()
+    taux_annulation = (nb_annulations / nb_commandes * 100) if nb_commandes > 0 else 0
 
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
         st.metric("💰 Nombre total de vente", f"${total_ventes:,.0f}", delta=delta_ventes)
     with col2:
@@ -203,6 +240,12 @@ with tab1:
         st.metric("📦 Nombre total de commande", f"{nb_commandes:,}", delta=delta_commandes)
     with col4:
         st.metric("🧺 Panier moyen", f"${panier_moyen:,.2f}")
+
+    col5, col6 = st.columns(2)
+    with col5:
+        st.metric("📦 Quantité totale d'articles vendus", f"{qte_totale:,.0f}")
+    with col6:
+        st.metric("↩️ Taux d'annulation / remboursement", f"{taux_annulation:.1f}%")
 
     st.markdown("---")
     st.subheader("Ventes par catégorie et par région")
@@ -241,12 +284,31 @@ with tab1:
         st.info(f"💡 La région **{top_region['Region']}** génère **{pct_region:.1f}%** du chiffre d'affaires.")
 
     st.markdown("---")
+    st.subheader("Répartition par mode de paiement")
+
+    paiement_counts = df_filtered.groupby('payment_method')['order_id'].nunique().reset_index()
+    paiement_counts.columns = ['Mode de paiement', 'Nombre de commandes']
+    paiement_counts = paiement_counts.sort_values('Nombre de commandes', ascending=False)
+
+    fig_paiement = px.bar(
+        paiement_counts,
+        x='Mode de paiement',
+        y='Nombre de commandes',
+        title="Nombre de commandes par mode de paiement",
+        color_discrete_sequence=COLOR_SEQUENCE
+    )
+    st.plotly_chart(fig_paiement, use_container_width=True)
+
+    top_paiement = paiement_counts.iloc[0]
+    st.info(f"💡 Le mode de paiement le plus utilisé est **{top_paiement['Mode de paiement']}** ({top_paiement['Nombre de commandes']:,} commandes).")
+
+    st.markdown("---")
     with st.expander("🔍 Voir un extrait des données filtrées"):
         st.dataframe(df_filtered.head(20))
 
 # ===================== TAB 2 : CLIENTS =====================
 with tab2:
-    st.subheader("Top 10 des meilleurs clients")
+    st.subheader("Top 10 des meilleurs clients (par montant)")
 
     top_clients = df_filtered.groupby('full_name')['total'].sum().reset_index()
     top_clients = top_clients.sort_values('total', ascending=False).head(10)
@@ -263,6 +325,26 @@ with tab2:
 
     best_client = top_clients.iloc[0]
     st.info(f"💡 **{best_client['full_name']}** est votre meilleur client, avec **${best_client['total']:,.0f}** d'achats cumulés.")
+
+    st.markdown("---")
+    st.subheader("Top 10 des clients les plus fidèles (par nombre de commandes)")
+
+    fidelite = df_filtered.groupby('full_name')['order_id'].nunique().reset_index()
+    fidelite.columns = ['full_name', 'nb_commandes']
+    fidelite = fidelite.sort_values('nb_commandes', ascending=False).head(10)
+
+    fig_fidelite = px.bar(
+        fidelite.sort_values('nb_commandes'),
+        x='nb_commandes',
+        y='full_name',
+        orientation='h',
+        title="Top 10 des clients les plus fidèles (nombre de commandes)",
+        color_discrete_sequence=[COLOR_SEQUENCE[2]]
+    )
+    st.plotly_chart(fig_fidelite, use_container_width=True)
+
+    most_loyal = fidelite.iloc[0]
+    st.info(f"💡 **{most_loyal['full_name']}** est votre client le plus fidèle, avec **{most_loyal['nb_commandes']}** commandes passées.")
 
     st.markdown("---")
     st.subheader("Répartition des clients par âge et par genre")
@@ -325,6 +407,48 @@ with tab3:
     if len(ventes_mensuelles) > 0:
         best_month = ventes_mensuelles.sort_values('total', ascending=False).iloc[0]
         st.info(f"💡 Le meilleur mois est **{best_month['annee_mois']}** avec **${best_month['total']:,.0f}** de ventes.")
+
+    st.markdown("---")
+    st.subheader("🔮 Prévision des ventes (3 prochains mois)")
+
+    ts = ventes_mensuelles.set_index('annee_mois')['total']
+    ts.index = pd.PeriodIndex(ts.index, freq='M').to_timestamp()
+    n_periods = len(ts)
+
+    if n_periods >= 4:
+        try:
+            if n_periods >= 24:
+                model = ExponentialSmoothing(ts, trend='add', seasonal='add', seasonal_periods=12)
+            else:
+                model = ExponentialSmoothing(ts, trend='add', seasonal=None)
+            fit = model.fit()
+            forecast = fit.forecast(3)
+
+            fig_forecast = go.Figure()
+            fig_forecast.add_trace(go.Scatter(
+                x=ts.index, y=ts.values,
+                mode='lines+markers', name='Ventes réelles',
+                line=dict(color=COLOR_SEQUENCE[0])
+            ))
+            forecast_x = [ts.index[-1]] + list(forecast.index)
+            forecast_y = [ts.values[-1]] + list(forecast.values)
+            fig_forecast.add_trace(go.Scatter(
+                x=forecast_x, y=forecast_y,
+                mode='lines+markers', name='Prévision (3 mois)',
+                line=dict(color='#d62728', dash='dash')
+            ))
+            fig_forecast.update_layout(
+                title="Prévision des ventes pour les 3 prochains mois (méthode Holt-Winters)",
+                xaxis_title="Mois",
+                yaxis_title="Total des ventes"
+            )
+            st.plotly_chart(fig_forecast, use_container_width=True)
+
+            st.info(f"💡 Prévision : les ventes du mois prochain sont estimées à environ **${forecast.iloc[0]:,.0f}**.")
+        except Exception:
+            st.warning("⚠️ Impossible de générer une prévision fiable avec les données actuelles (série trop courte ou irrégulière).")
+    else:
+        st.info("Pas assez de mois de données pour générer une prévision fiable (minimum 4 mois recommandé). Élargissez la période sélectionnée.")
 
     st.markdown("---")
     st.subheader("Données détaillées")
