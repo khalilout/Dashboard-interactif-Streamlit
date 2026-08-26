@@ -480,7 +480,7 @@ with tab4:
     )
     fig_map.update_layout(mapbox_style=map_style)
     fig_map.update_layout(margin={"r": 0, "t": 40, "l": 0, "b": 0})
-    st.plotly_chart(fig_map, use_container_width=True)
+    st.plotly_chart(fig_map, width="stretch")
 
     if len(ventes_state) > 0:
         top_state = ventes_state.sort_values('total', ascending=False).iloc[0]
