@@ -66,8 +66,9 @@ STATUTS_ANNULATION = ['Annulée', 'Remboursée', 'Remboursement']
 
 @st.cache_data
 def load_data():
-    URL = "https://drive.google.com/file/d/127-yJRX-1sZWuWzbbq0-3PpIIPWLCY5G/view?usp=drive_link"
-    df = pd.read_csv(URL, low_memory=False)
+    file_id = "127-yJRX-1sZWuWzbbq0-3PpIIPWLCY5G"
+    url = f"https://drive.google.com/uc?id={file_id}"
+    df = pd.read_csv(url, low_memory=False)
     df['order_date'] = pd.to_datetime(df['order_date'])
     df['State Complet'] = df['State'].map(STATE_NAMES)
     df['Country'] = 'USA'
