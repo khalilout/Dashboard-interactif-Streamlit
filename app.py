@@ -1,11 +1,16 @@
+import warnings
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
+
+warnings.simplefilter("ignore", ConvergenceWarning)
 
 st.set_page_config(page_title="SalesVision USA", layout="wide")
 
+# ---------- PALETTE DE COULEURS COHÉRENTE ----------
 COLOR_SEQUENCE = ["#1f77b4", "#4a90d9", "#7fb3e0", "#0d3c61", "#a8cce8", "#2c5f8a"]
 
 STATE_NAMES = {
@@ -81,6 +86,7 @@ def load_data():
 with st.spinner("Chargement des données..."):
     df = load_data()
 
+# ---------- EN-TÊTE ----------
 st.markdown("""
     <div style='text-align: center; padding: 10px 0 20px 0;'>
         <h1 style='color: #1f77b4; margin-bottom: 0;'>📊 SalesVision USA</h1>
@@ -88,6 +94,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+# ---------- SIDEBAR : FILTRES ----------
 st.sidebar.header("Filtres")
 
 min_date = df['order_date'].min()
@@ -107,7 +114,7 @@ def reset_filters():
 
 st.sidebar.button(
     "🔄 Réinitialiser tous les filtres",
-    use_container_width=True,
+    width='stretch',
     type="primary",
     on_click=reset_filters
 )
@@ -144,7 +151,7 @@ statuts = sorted(df['Statut'].unique())
 selected_statuts = st.sidebar.multiselect("Statut de la commande", statuts, key="filter_status")
 
 
-# FONCTION DE FILTRAGE (réutilisable pour la comparaison de période) 
+# ---------- FONCTION DE FILTRAGE (réutilisable pour la comparaison de période) ----------
 def apply_filters(base_df, start=None, end=None):
     d = base_df
     if start is not None and end is not None:
@@ -169,12 +176,12 @@ if has_period:
 else:
     df_filtered = apply_filters(df)
 
-# MESSAGE SI AUCUNE DONNÉE 
+# ---------- MESSAGE SI AUCUNE DONNÉE ----------
 if df_filtered.empty:
     st.warning("⚠️ Aucune donnée ne correspond à cette combinaison de filtres. Essayez d'élargir votre sélection ou cliquez sur 'Réinitialiser tous les filtres'.")
     st.stop()
 
-# CALCUL DE LA PÉRIODE PRÉCÉDENTE (pour comparaison) 
+# ---------- CALCUL DE LA PÉRIODE PRÉCÉDENTE (pour comparaison) ----------
 delta_ventes = None
 delta_commandes = None
 delta_clients = None
@@ -202,7 +209,7 @@ if has_period:
         if prev_commandes > 0:
             delta_commandes = f"{((curr_commandes - prev_commandes) / prev_commandes) * 100:+.1f}% vs période précédente"
 
-# BOUTON D'EXPORT CSV 
+# ---------- BOUTON D'EXPORT CSV ----------
 csv_data = df_filtered.to_csv(index=False).encode('utf-8')
 st.sidebar.markdown("---")
 st.sidebar.download_button(
@@ -210,14 +217,15 @@ st.sidebar.download_button(
     data=csv_data,
     file_name="ventes_filtrees.csv",
     mime="text/csv",
-    use_container_width=True
+    width='stretch'
 )
 
+# ---------- ONGLETS ----------
 tab1, tab2, tab3, tab4 = st.tabs(
     ["🏠 Vue d'ensemble", "👥 Clients", "📈 Ventes détaillées", "🗺️ Carte"]
 )
 
-#  TAB 1 : VUE D'ENSEMBLE 
+# ===================== TAB 1 : VUE D'ENSEMBLE =====================
 with tab1:
     st.subheader("Indicateurs clés")
 
@@ -260,7 +268,7 @@ with tab1:
             title="Nombre total de vente par Catégorie",
             color_discrete_sequence=COLOR_SEQUENCE
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width='stretch')
 
         top_cat = ventes_categorie.iloc[0]
         pct_cat = (top_cat['total'] / total_ventes) * 100
@@ -275,7 +283,7 @@ with tab1:
             title="Pourcentage du nombre total de vente par Région",
             color_discrete_sequence=COLOR_SEQUENCE
         )
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, width='stretch')
 
         top_region = ventes_region.sort_values('total', ascending=False).iloc[0]
         pct_region = (top_region['total'] / total_ventes) * 100
@@ -295,7 +303,7 @@ with tab1:
         title="Nombre de commandes par mode de paiement",
         color_discrete_sequence=COLOR_SEQUENCE
     )
-    st.plotly_chart(fig_paiement, use_container_width=True)
+    st.plotly_chart(fig_paiement, width='stretch')
 
     top_paiement = paiement_counts.iloc[0]
     st.info(f"💡 Le mode de paiement le plus utilisé est **{top_paiement['Mode de paiement']}** ({top_paiement['Nombre de commandes']:,} commandes).")
@@ -304,7 +312,7 @@ with tab1:
     with st.expander("🔍 Voir un extrait des données filtrées"):
         st.dataframe(df_filtered.head(20))
 
-# TAB 2 : CLIENTS 
+# ===================== TAB 2 : CLIENTS =====================
 with tab2:
     st.subheader("Top 10 des meilleurs clients (par montant)")
 
@@ -319,7 +327,7 @@ with tab2:
         title="Top 10 des meilleurs clients (par nombre total de vente)",
         color_discrete_sequence=COLOR_SEQUENCE
     )
-    st.plotly_chart(fig_top10, use_container_width=True)
+    st.plotly_chart(fig_top10, width='stretch')
 
     best_client = top_clients.iloc[0]
     st.info(f"💡 **{best_client['full_name']}** est votre meilleur client, avec **${best_client['total']:,.0f}** d'achats cumulés.")
@@ -339,7 +347,7 @@ with tab2:
         title="Top 10 des clients les plus fidèles (nombre de commandes)",
         color_discrete_sequence=[COLOR_SEQUENCE[2]]
     )
-    st.plotly_chart(fig_fidelite, use_container_width=True)
+    st.plotly_chart(fig_fidelite, width='stretch')
 
     most_loyal = fidelite.iloc[0]
     st.info(f"💡 **{most_loyal['full_name']}** est votre client le plus fidèle, avec **{most_loyal['nb_commandes']}** commandes passées.")
@@ -357,7 +365,7 @@ with tab2:
             title="Répartition de l'âge des clients",
             color_discrete_sequence=[COLOR_SEQUENCE[0]]
         )
-        st.plotly_chart(fig_age, use_container_width=True)
+        st.plotly_chart(fig_age, width='stretch')
 
         age_moyen = df_filtered['age'].mean()
         st.info(f"💡 L'âge moyen des clients est de **{age_moyen:.0f} ans**.")
@@ -376,12 +384,12 @@ with tab2:
             color='Gender',
             color_discrete_sequence=COLOR_SEQUENCE
         )
-        st.plotly_chart(fig_gender, use_container_width=True)
+        st.plotly_chart(fig_gender, width='stretch')
 
         top_gender = gender_counts.sort_values('Pourcentage', ascending=False).iloc[0]
         st.info(f"💡 La clientèle est majoritairement composée de **{top_gender['Gender']}** ({top_gender['Pourcentage']:.1f}%).")
 
-# TAB 3 : VENTES DÉTAILLÉES 
+# ===================== TAB 3 : VENTES DÉTAILLÉES =====================
 with tab3:
     st.subheader("Évolution du nombre total de vente par mois")
 
@@ -400,7 +408,7 @@ with tab3:
     )
     fig_line.update_xaxes(title="Année-Mois")
     fig_line.update_yaxes(title="Total des ventes")
-    st.plotly_chart(fig_line, use_container_width=True)
+    st.plotly_chart(fig_line, width='stretch')
 
     if len(ventes_mensuelles) > 0:
         best_month = ventes_mensuelles.sort_values('total', ascending=False).iloc[0]
@@ -440,7 +448,7 @@ with tab3:
                 xaxis_title="Mois",
                 yaxis_title="Total des ventes"
             )
-            st.plotly_chart(fig_forecast, use_container_width=True)
+            st.plotly_chart(fig_forecast, width='stretch')
 
             st.info(f"💡 Prévision : les ventes du mois prochain sont estimées à environ **${forecast.iloc[0]:,.0f}**.")
         except Exception:
@@ -452,7 +460,7 @@ with tab3:
     st.subheader("Données détaillées")
     st.dataframe(df_filtered.head(50))
 
-# TAB 4 : CARTE 
+# ===================== TAB 4 : CARTE =====================
 with tab4:
     st.subheader("🗺️ Carte des ventes par State")
 
@@ -466,7 +474,7 @@ with tab4:
         ['State', 'State Complet', 'Latitude', 'Longitude']
     )['total'].sum().reset_index()
 
-    fig_map = px.scatter_mapbox(
+    fig_map = px.scatter_map(
         ventes_state,
         lat='Latitude',
         lon='Longitude',
@@ -478,11 +486,11 @@ with tab4:
         center={"lat": 39.8, "lon": -98.5},
         height=600,
         color_continuous_scale='Blues',
+        map_style=map_style,
         title="Nombre total de vente par State"
     )
-    fig_map.update_layout(mapbox_style=map_style)
     fig_map.update_layout(margin={"r": 0, "t": 40, "l": 0, "b": 0})
-    st.plotly_chart(fig_map, width="stretch")
+    st.plotly_chart(fig_map, width='stretch')
 
     if len(ventes_state) > 0:
         top_state = ventes_state.sort_values('total', ascending=False).iloc[0]
